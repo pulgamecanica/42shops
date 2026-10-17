@@ -31,6 +31,7 @@ Each 42 campus runs its own intra shop, and you can normally only see your own. 
 - **Your campus and the most viewed one, up front.** Your home campus is pinned at the top, next to the campus students open most.
 - **Full shop view.** Filter by *In stock*, *In budget*, *Unavailable* or *All*, sort by price, name or newest, and search within a shop.
 - **Every shop at once.** `/shops/all` mixes the items of every campus into one grid. Shops load one by one in the background (your campus first), and picking a country or campus in the filters moves it up the queue. Each card shows its campus, *New*, *Unique* and *1 per person* badges, how many times it was opened on 42 Shops, and how long it has been listed. Filter by country, campus, max price, availability, budget, low stock, free or your own campus, and sort by views, age or price.
+- **Compare shops.** Turn on *Compare shops* on `/shops/all` and pick up to 4 campuses or whole countries (2 on a phone). They line up side by side with item, stock, budget, cheapest, median and newest stats (the best of each is starred) and their items, still searchable and filterable.
 - **Wallet aware.** Your current ₳ balance is shown everywhere, with a progress bar for items you can't afford yet.
 - **Campus switcher.** Press <kbd>⌘ K</kbd> (or <kbd>Ctrl K</kbd>) to jump to any campus from the keyboard.
 - **42 sign-in only.** Nothing is visible without signing in through 42 OAuth.

@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, LayoutGroup, motion } from "motion/react";
-import { ArrowLeft, ArrowUpRight, Clock, Eye, Loader2, RotateCw, Search, X } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Clock, Columns3, Eye, Loader2, RotateCw, Search, X } from "lucide-react";
 import type { Campus, Product } from "@/lib/types";
 import { countryCode } from "@/lib/countries";
 import { ageInDays, cn, formatAge, formatDate, formatNumber, normalize, productStatus } from "@/lib/utils";
 import { Segmented, SortMenu } from "./controls";
 import { PixelArt } from "./pixel-art";
 import { Fact, Price, ProductCard, ProductModal, type ShopItem } from "./product";
+import { CompareBoard, ComparePicker, slotCampuses, slotMatches, type Slot } from "./shop-compare";
 import { StickyNote } from "./sticky-note";
 
 type Status = "all" | "available" | "affordable" | "unavailable";
@@ -17,7 +18,7 @@ type Sort = "featured" | "views" | "newest" | "oldest" | "price-asc" | "price-de
 type Flag = "home" | "new" | "low" | "unique" | "once" | "free";
 
 // A product can be listed by several campuses; it becomes one card listing all of them.
-type Item = ShopItem & { campuses: Campus[]; views: number; age: number | null; haystack: string };
+export type Item = ShopItem & { campuses: Campus[]; views: number; age: number | null; haystack: string };
 
 const NEW_DAYS = 30;
 const PAGE = 48;
@@ -36,7 +37,11 @@ const SORTS: Array<{ value: Sort; label: string }> = [
 const FLAGS: Array<{ value: Flag; label: string; test: (i: Item, home: number | null) => boolean }> = [
   { value: "home", label: "My campus", test: (i, home) => i.campuses.some((c) => c.id === home) },
   { value: "new", label: `New, ${NEW_DAYS} days`, test: (i) => i.age !== null && i.age <= NEW_DAYS },
-  { value: "low", label: "Low stock", test: (i) => i.status === "available" && i.quantity !== null && i.quantity <= 10 },
+  {
+    value: "low",
+    label: "Low stock",
+    test: (i) => i.status === "available" && i.quantity !== null && i.quantity <= 10,
+  },
   { value: "unique", label: "Unique", test: (i) => i.isUnique },
   { value: "once", label: "One per person", test: (i) => i.oneTimePurchase },
   { value: "free", label: "Free", test: (i) => i.price === 0 },
@@ -123,6 +128,19 @@ function useShopLoader(
   return { loaded, failed, loading, prioritize, retry };
 }
 
+/** Side-by-side room: 4 shops from tablet width up, 2 on a phone. */
+function useCompareMax() {
+  const [max, setMax] = useState(4);
+  useEffect(() => {
+    const m = window.matchMedia("(min-width: 768px)");
+    const update = () => setMax(m.matches ? 4 : 2);
+    update();
+    m.addEventListener("change", update);
+    return () => m.removeEventListener("change", update);
+  }, []);
+  return max;
+}
+
 function Num({ children }: { children: React.ReactNode }) {
   return <span className="font-medium text-ink tabular">{children}</span>;
 }
@@ -131,7 +149,10 @@ function Badge({ children, className, title }: { children: React.ReactNode; clas
   return (
     <span
       title={title}
-      className={cn("inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium leading-4", className)}
+      className={cn(
+        "inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium leading-4",
+        className,
+      )}
     >
       {children}
     </span>
@@ -142,14 +163,19 @@ function CardMeta({ item }: { item: Item }) {
   return (
     <>
       <Badge className="bg-ink text-white" title={item.campuses.map((c) => `${c.name}, ${c.country}`).join("\n")}>
-        <span className="font-pixel text-[9px] leading-none text-white/70">{countryCode(item.campuses[0].country)}</span>
+        <span className="font-pixel text-[9px] leading-none text-white/70">
+          {countryCode(item.campuses[0].country)}
+        </span>
         <span className="truncate">{item.campuses[0].name}</span>
         {item.campuses.length > 1 ? <span className="text-white/70">+{item.campuses.length - 1}</span> : null}
       </Badge>
       {item.age !== null && item.age <= NEW_DAYS ? <Badge className="bg-blue-wash text-blue">New</Badge> : null}
       {item.isUnique ? <Badge className="bg-sticky/60 text-ink">Unique</Badge> : null}
       {item.oneTimePurchase ? <Badge className="bg-heart/10 text-heart">1 per person</Badge> : null}
-      <Badge className="border border-line text-muted" title={`${item.views} ${item.views === 1 ? "view" : "views"} on 42 Shops`}>
+      <Badge
+        className="border border-line text-muted"
+        title={`${item.views} ${item.views === 1 ? "view" : "views"} on 42 Shops`}
+      >
         <Eye size={11} aria-hidden />
         <span className="tabular">{formatNumber(item.views)}</span>
       </Badge>
@@ -177,8 +203,15 @@ function LoadProgress({
   onRetry: () => void;
 }) {
   return (
-    <div className="flex h-10 items-center gap-3 rounded-full border border-line bg-white pl-3.5 pr-1.5 text-sm" aria-live="polite">
-      {loading ? <Loader2 size={14} className="animate-spin text-blue" aria-hidden /> : <PixelArt sprite="coin" scale={2} />}
+    <div
+      className="flex h-10 items-center gap-3 rounded-full border border-line bg-white pl-3.5 pr-1.5 text-sm"
+      aria-live="polite"
+    >
+      {loading ? (
+        <Loader2 size={14} className="animate-spin text-blue" aria-hidden />
+      ) : (
+        <PixelArt sprite="coin" scale={2} />
+      )}
       <span className="tabular">
         {!loading ? "Shops loaded" : done === total ? "Refreshing shops" : "Visiting shops"} <Num>{done}</Num>
         <span className="text-muted">/{total}</span>
@@ -257,6 +290,9 @@ export function AllShopsView({
   const [flags, setFlags] = useState<Flag[]>([]);
   const [maxPrice, setMaxPrice] = useState("");
   const [limit, setLimit] = useState(PAGE);
+  const [compare, setCompare] = useState(false);
+  const [slots, setSlots] = useState<Slot[]>([]);
+  const compareMax = useCompareMax();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -287,13 +323,15 @@ export function AllShopsView({
     const tests = FLAGS.filter((f) => flags.includes(f.value));
     return items.filter(
       (i) =>
-        (country === "all" || i.campuses.some((c) => c.country === country)) &&
-        (campusId === "all" || i.campuses.some((c) => String(c.id) === campusId)) &&
+        (compare
+          ? slots.some((slot) => slotMatches(slot, i))
+          : (country === "all" || i.campuses.some((c) => c.country === country)) &&
+            (campusId === "all" || i.campuses.some((c) => String(c.id) === campusId))) &&
         i.price <= max &&
         (!q || i.haystack.includes(q)) &&
         tests.every((f) => f.test(i, homeCampusId)),
     );
-  }, [items, query, maxPrice, country, campusId, flags, homeCampusId]);
+  }, [items, query, maxPrice, country, campusId, flags, homeCampusId, compare, slots]);
 
   const counts = useMemo(() => {
     const available = base.filter((i) => i.status === "available");
@@ -364,7 +402,17 @@ export function AllShopsView({
   const selected = items.find((i) => i.id === selectedId) ?? null;
   const closeModal = useCallback(() => setSelectedId(null), []);
   const toggleFlag = (f: Flag) => setFlags((prev) => (prev.includes(f) ? prev.filter((x) => x !== f) : [...prev, f]));
-  const filtered = query !== "" || country !== "all" || campusId !== "all" || flags.length > 0 || maxPrice !== "";
+  const filtered =
+    query !== "" || (!compare && (country !== "all" || campusId !== "all")) || flags.length > 0 || maxPrice !== "";
+
+  const changeSlots = (next: Slot[]) => {
+    setSlots(next);
+    prioritize(next.filter((s) => !slots.includes(s)).flatMap((s) => slotCampuses(s, campuses).map((c) => c.id)));
+  };
+  const toggleCompare = () => {
+    if (!compare && slots.length === 0 && homeCampusId !== null) changeSlots([`campus:${homeCampusId}`]);
+    setCompare((v) => !v);
+  };
   const resetFilters = () => {
     setQuery("");
     setCountry("all");
@@ -410,7 +458,9 @@ export function AllShopsView({
             </span>
             The whole network
           </p>
-          <h1 className="mt-3 font-display text-[clamp(3.2rem,9vw,7.5rem)] leading-[0.88] tracking-[-0.02em]">Every shop</h1>
+          <h1 className="mt-3 font-display text-[clamp(3.2rem,9vw,7.5rem)] leading-[0.88] tracking-[-0.02em]">
+            Every shop
+          </h1>
           <p className="mt-5 max-w-xl text-[15px] leading-relaxed text-muted">
             <Num>{formatNumber(items.length)}</Num> items from <Num>{formatNumber(stats.shops)}</Num> campus shops in{" "}
             <Num>{formatNumber(stats.countries)}</Num> countries. <Num>{formatNumber(stats.available)}</Num> in stock,{" "}
@@ -418,7 +468,14 @@ export function AllShopsView({
             {stats.mostViewed ? (
               <>
                 {" "}
-                Most viewed: <button onClick={() => setSelectedId(stats.mostViewed!.id)} className="font-medium text-ink underline decoration-line underline-offset-4 hover:decoration-ink">{stats.mostViewed.name}</button> from {stats.mostViewed.campuses[0].name}.
+                Most viewed:{" "}
+                <button
+                  onClick={() => setSelectedId(stats.mostViewed!.id)}
+                  className="font-medium text-ink underline decoration-line underline-offset-4 hover:decoration-ink"
+                >
+                  {stats.mostViewed.name}
+                </button>{" "}
+                from {stats.mostViewed.campuses[0].name}.
               </>
             ) : null}
           </p>
@@ -434,7 +491,11 @@ export function AllShopsView({
 
       <div className="sticky top-2 z-30 -mx-2 mb-3 flex flex-col gap-2 rounded-[22px] bg-white/80 p-2 backdrop-blur-md sm:top-3 md:flex-row md:items-center">
         <label className="group relative flex flex-1 items-center rounded-full border border-line bg-white transition-[border-color,box-shadow] duration-200 focus-within:border-blue focus-within:shadow-[0_0_0_4px_var(--color-blue-wash)]">
-          <Search size={16} className="pointer-events-none absolute left-4 text-muted group-focus-within:text-blue" aria-hidden />
+          <Search
+            size={16}
+            className="pointer-events-none absolute left-4 text-muted group-focus-within:text-blue"
+            aria-hidden
+          />
           <span className="sr-only">Search every shop</span>
           <input
             ref={searchRef}
@@ -478,28 +539,44 @@ export function AllShopsView({
         </div>
       </div>
 
-      <div className="mb-8 flex flex-wrap items-center gap-2 sm:mb-10">
-        <SortMenu
-          label="Country"
-          align="left"
-          value={country}
-          onChange={(c) => {
-            setCountry(c);
-            setCampusId("all");
-            prioritize(campuses.filter((x) => x.country === c).map((x) => x.id));
-          }}
-          options={countryOptions}
-        />
-        <SortMenu
-          label="Campus"
-          align="left"
-          value={campusId}
-          onChange={(id) => {
-            setCampusId(id);
-            prioritize([Number(id)]);
-          }}
-          options={campusOptions}
-        />
+      <div className={cn("flex flex-wrap items-center gap-2", compare ? "mb-3" : "mb-8 sm:mb-10")}>
+        <motion.button
+          whileTap={{ scale: 0.95 }}
+          aria-pressed={compare}
+          onClick={toggleCompare}
+          className={cn(
+            "inline-flex h-10 items-center gap-2 rounded-full border px-4 text-sm font-medium transition-colors",
+            compare ? "border-blue bg-blue text-white" : "border-line bg-white text-ink hover:border-ink",
+          )}
+        >
+          <Columns3 size={15} />
+          {compare ? "Comparing" : "Compare shops"}
+        </motion.button>
+        {compare ? null : (
+          <>
+            <SortMenu
+              label="Country"
+              align="left"
+              value={country}
+              onChange={(c) => {
+                setCountry(c);
+                setCampusId("all");
+                prioritize(campuses.filter((x) => x.country === c).map((x) => x.id));
+              }}
+              options={countryOptions}
+            />
+            <SortMenu
+              label="Campus"
+              align="left"
+              value={campusId}
+              onChange={(id) => {
+                setCampusId(id);
+                prioritize([Number(id)]);
+              }}
+              options={campusOptions}
+            />
+          </>
+        )}
         <label className="flex h-10 items-center gap-1.5 rounded-full border border-line bg-white pl-4 pr-3 text-sm transition-colors focus-within:border-blue">
           <span className="text-muted">Max</span>
           <span className="font-pixel text-[12px]">₳</span>
@@ -546,30 +623,65 @@ export function AllShopsView({
         </AnimatePresence>
       </div>
 
+      <AnimatePresence initial={false}>
+        {compare ? (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+            className="-mx-2 mb-8 px-2 py-1 sm:mb-10"
+          >
+            <ComparePicker campuses={campuses} loaded={loaded} slots={slots} max={compareMax} onChange={changeSlots} />
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
       <LayoutGroup>
-        <motion.div layout className="relative grid grid-cols-2 gap-x-3.5 gap-y-10 sm:gap-x-5 sm:gap-y-12 md:grid-cols-3 xl:grid-cols-4">
-          <AnimatePresence mode="popLayout" initial={false}>
-            {visible.slice(0, limit).map((item, i) => (
-              <motion.div
-                key={item.id}
-                layout
-                initial={{ opacity: 0, scale: 0.92, y: 12 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.92, transition: { duration: 0.16 } }}
-                transition={{
-                  type: "spring",
-                  stiffness: 380,
-                  damping: 32,
-                  delay: Math.min(i % PAGE, 10) * 0.025,
-                  layout: { type: "spring", stiffness: 380, damping: 34 },
-                }}
-                className={cn(selectedId === item.id && "z-10")}
-              >
-                <ProductCard item={item} wallet={wallet} onOpen={() => setSelectedId(item.id)} meta={<CardMeta item={item} />} />
-              </motion.div>
-            ))}
-          </AnimatePresence>
-        </motion.div>
+        {compare ? (
+          <CompareBoard
+            slots={slots}
+            campuses={campuses}
+            loaded={loaded}
+            all={items}
+            visible={visible}
+            wallet={wallet}
+            max={compareMax}
+            onOpen={setSelectedId}
+          />
+        ) : (
+          <motion.div
+            layout
+            className="relative grid grid-cols-2 gap-x-3.5 gap-y-10 sm:gap-x-5 sm:gap-y-12 md:grid-cols-3 xl:grid-cols-4"
+          >
+            <AnimatePresence mode="popLayout" initial={false}>
+              {visible.slice(0, limit).map((item, i) => (
+                <motion.div
+                  key={item.id}
+                  layout
+                  initial={{ opacity: 0, scale: 0.92, y: 12 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.92, transition: { duration: 0.16 } }}
+                  transition={{
+                    type: "spring",
+                    stiffness: 380,
+                    damping: 32,
+                    delay: Math.min(i % PAGE, 10) * 0.025,
+                    layout: { type: "spring", stiffness: 380, damping: 34 },
+                  }}
+                  className={cn(selectedId === item.id && "z-10")}
+                >
+                  <ProductCard
+                    item={item}
+                    wallet={wallet}
+                    onOpen={() => setSelectedId(item.id)}
+                    meta={<CardMeta item={item} />}
+                  />
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          </motion.div>
+        )}
 
         <ProductModal
           item={selected}
@@ -582,7 +694,11 @@ export function AllShopsView({
                 <Fact label={selected.campuses.length > 1 ? `Sold at ${selected.campuses.length} campuses` : "Campus"}>
                   <span className="flex flex-col items-end gap-1">
                     {selected.campuses.map((c) => (
-                      <Link key={c.id} href={`/shops/${c.id}`} className="group inline-flex items-center gap-1 hover:text-blue">
+                      <Link
+                        key={c.id}
+                        href={`/shops/${c.id}`}
+                        className="group inline-flex items-center gap-1 hover:text-blue"
+                      >
                         {c.name}, {c.country}
                         <ArrowUpRight size={13} className="text-muted group-hover:text-blue" />
                       </Link>
@@ -601,7 +717,7 @@ export function AllShopsView({
         />
       </LayoutGroup>
 
-      {visible.length > limit ? (
+      {!compare && visible.length > limit ? (
         <div className="mt-12 flex flex-col items-center gap-2">
           <motion.button
             whileTap={{ scale: 0.96 }}
@@ -617,7 +733,7 @@ export function AllShopsView({
       ) : null}
 
       <AnimatePresence>
-        {visible.length === 0 ? (
+        {!compare && visible.length === 0 ? (
           <motion.div
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
@@ -628,7 +744,11 @@ export function AllShopsView({
               <PixelArt sprite="ghost" scale={6} />
             </motion.div>
             <p className="mt-6 font-display text-3xl">
-              {loading ? "Visiting the shops…" : items.length === 0 ? "No shop has listed anything yet" : "Nothing matches these filters"}
+              {loading
+                ? "Visiting the shops…"
+                : items.length === 0
+                  ? "No shop has listed anything yet"
+                  : "Nothing matches these filters"}
             </p>
             <p className="mt-2 text-sm text-muted">
               {loading ? (
