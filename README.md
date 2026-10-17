@@ -183,6 +183,27 @@ The 42 API allows about **2 requests per second per app**. To stay well under it
 | `npm run start` | Serve the production build |
 | `npm run typecheck` | Type-check without emitting |
 
+### Make
+
+Run `make` to list every target. The useful ones:
+
+| Command | What it does |
+| --- | --- |
+| `make setup` | `npm ci` and create `.env.local` from the example |
+| `make env-check` | Required variables are set and well formed |
+| `make intra-check` | 42 accepts your app credentials, and when the secret expires |
+| `make doctor` | Both checks |
+| `make check` | Type-check and build, same as CI |
+| `make key-save NAME=main` | Save the current `FT_CLIENT_ID` / `FT_CLIENT_SECRET` to `.keys/main.env` |
+| `make key-use NAME=main` | Switch the env file to a saved key, then verify it with intra |
+| `make key-list` | Saved keys, `*` marks the active one |
+
+Targets read `.env.local`, or `.env` when there is none. Override with `ENV_FILE=path`. `.keys/` is git-ignored. The env helpers need Node 20.12+.
+
+## Releases
+
+Every PR and push to `main` runs `make check`. On `main`, if the `version` in `package.json` has no `v<version>` release yet, one is created and named after `CODENAME` in the `Makefile`, with notes generated from the merged PRs. To ship: bump `version`, pick a new `CODENAME`, merge.
+
 ## Contributing
 
 Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and what makes a good pull request.
