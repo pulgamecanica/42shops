@@ -18,6 +18,18 @@ export const formatNumber = (n: number) => numberFormat.format(n);
 const dateFormat = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" });
 export const formatDate = (iso: string) => dateFormat.format(new Date(iso));
 
+/** Days since `iso`, at `now`. */
+export const ageInDays = (iso: string, now: number) => Math.max(0, Math.floor((now - Date.parse(iso)) / 86_400_000));
+
+/** Compact age: "today", "5d", "3w", "8mo", "2y". */
+export function formatAge(days: number): string {
+  if (days < 1) return "today";
+  if (days < 14) return `${days}d`;
+  if (days < 60) return `${Math.floor(days / 7)}w`;
+  if (days < 730) return `${Math.floor(days / 30)}mo`;
+  return `${Math.floor(days / 365)}y`;
+}
+
 export function groupByCountry(campuses: Campus[]): CountryGroup[] {
   const map = new Map<string, Campus[]>();
   for (const c of campuses) {

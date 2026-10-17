@@ -124,7 +124,18 @@ const imageVariants: Variants = {
   hover: { scale: 1.06, rotate: -2, transition: { type: "spring", stiffness: 300, damping: 18 } },
 };
 
-export function ProductCard({ item, wallet, onOpen }: { item: ShopItem; wallet: number; onOpen: () => void }) {
+export function ProductCard({
+  item,
+  wallet,
+  onOpen,
+  meta,
+}: {
+  item: ShopItem;
+  wallet: number;
+  onOpen: () => void;
+  /** Extra badges under the title, e.g. campus and stats on the all-shops page. */
+  meta?: React.ReactNode;
+}) {
   const dimmed = item.status === "soldout" || item.status === "ended";
   const lowStock = item.status === "available" && item.quantity !== null && item.quantity <= 10;
 
@@ -165,6 +176,7 @@ export function ProductCard({ item, wallet, onOpen }: { item: ShopItem; wallet: 
           <h3 className={cn("line-clamp-2 text-[15px] font-medium leading-snug", dimmed && "text-muted")}>{item.name}</h3>
           <Price value={item.price} className="mt-0.5 shrink-0 text-[13px]" />
         </div>
+        {meta ? <div className="mt-2.5 flex flex-wrap items-center gap-1.5">{meta}</div> : null}
         <div className="mt-auto flex min-h-6 items-end pt-3">
           {item.status === "available" || item.status === "upcoming" ? (
             <Affordability price={item.price} wallet={wallet} compact />
@@ -180,7 +192,7 @@ export function ProductCard({ item, wallet, onOpen }: { item: ShopItem; wallet: 
 // ---------------------------------------------------------------------------
 // Modal
 // ---------------------------------------------------------------------------
-function Fact({ label, children }: { label: string; children: React.ReactNode }) {
+export function Fact({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-4 border-b border-line py-2.5 text-sm last:border-0">
       <dt className="text-muted">{label}</dt>
@@ -194,16 +206,25 @@ export function ProductModal({
   wallet,
   isHomeCampus,
   onClose,
+  facts,
 }: {
   item: ShopItem | null;
   wallet: number;
   isHomeCampus: boolean;
   onClose: () => void;
+  /** Extra <Fact> rows, shown before the stock details. */
+  facts?: React.ReactNode;
 }) {
   const [mounted, setMounted] = useState(false);
   const closeRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => setMounted(true), []);
+
+  // Count the view; the server dedupes repeat opens per user.
+  const itemId = item?.id;
+  useEffect(() => {
+    if (itemId) fetch(`/api/products/${itemId}/view`, { method: "POST" }).catch(() => {});
+  }, [itemId]);
 
   useEffect(() => {
     if (!item) return;
@@ -272,6 +293,7 @@ export function ProductModal({
               ) : null}
 
               <dl className="mt-6">
+                {facts}
                 <Fact label="Stock">
                   {item.quantity === null ? "No limit" : item.quantity <= 0 ? "None left" : `${formatNumber(item.quantity)} left`}
                 </Fact>

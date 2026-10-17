@@ -1,8 +1,8 @@
 import "server-only";
-import { Redis } from "@upstash/redis";
+import { redis } from "./redis";
 
 /**
- * Campus view counts, stored in Upstash Redis so they are shared by every
+ * Campus and product view counts, stored in Upstash Redis so they are shared by every
  * serverless instance and survive deploys.
  *
  * Without Redis credentials (e.g. local dev) it falls back to in-memory
@@ -13,20 +13,14 @@ const COOLDOWN_SECONDS = 15 * 60; // one counted view per user per campus every 
 const COUNTS_KEY = "campus-views:counts"; // sorted set: member = campusId, score = views
 const usersKey = (campusId: number) => `campus-views:users:${campusId}`; // set of userIds
 const cooldownKey = (userId: number, campusId: number) => `campus-views:cooldown:${userId}:${campusId}`;
-
-function createRedis(): Redis | null {
-  // Supports both the Upstash and the Vercel KV / Marketplace variable names.
-  const url = process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN;
-  return url && token ? new Redis({ url, token }) : null;
-}
-
-const redis = createRedis();
+const PRODUCT_COUNTS_KEY = "product-views:counts"; // sorted set: member = productId, score = views
+const productCooldownKey = (userId: number, productId: number) => `product-views:cooldown:${userId}:${productId}`;
 
 const memory = {
   counts: new Map<number, number>(),
   users: new Map<number, Set<number>>(),
   cooldowns: new Map<string, number>(),
+  productCounts: new Map<number, number>(),
 };
 
 function isValidId(n: number) {
@@ -102,4 +96,45 @@ export async function getMostViewedCampusId(
     }
   }
   return best;
+}
+
+/** Record a product detail view by an authenticated user, with the same cooldown as campuses. */
+export async function recordProductView(productId: number, userId: number): Promise<boolean> {
+  if (!isValidId(productId) || !isValidId(userId)) return false;
+
+  if (redis) {
+    try {
+      const fresh = await redis.set(productCooldownKey(userId, productId), 1, { nx: true, ex: COOLDOWN_SECONDS });
+      if (fresh !== "OK") return false;
+      await redis.zincrby(PRODUCT_COUNTS_KEY, 1, String(productId));
+      return true;
+    } catch (err) {
+      console.error("[product-views] Failed to record view:", err);
+      return false;
+    }
+  }
+
+  const key = `product:${userId}:${productId}`;
+  const now = Date.now();
+  if (now - (memory.cooldowns.get(key) ?? 0) < COOLDOWN_SECONDS * 1000) return false;
+  memory.cooldowns.set(key, now);
+  memory.productCounts.set(productId, (memory.productCounts.get(productId) ?? 0) + 1);
+  return true;
+}
+
+/** View counts for every product that has been opened at least once, keyed by product id. */
+export async function getProductViews(): Promise<Record<number, number>> {
+  if (redis) {
+    try {
+      // ponytail: reads the whole set (~1 entry per viewed product); page with ZRANGE limits if it grows past ~10k.
+      const flat = await redis.zrange<(string | number)[]>(PRODUCT_COUNTS_KEY, 0, -1, { withScores: true });
+      const out: Record<number, number> = {};
+      for (let i = 0; i + 1 < flat.length; i += 2) out[Number(flat[i])] = Number(flat[i + 1]);
+      return out;
+    } catch (err) {
+      console.error("[product-views] Failed to read views:", err);
+      return {};
+    }
+  }
+  return Object.fromEntries(memory.productCounts);
 }

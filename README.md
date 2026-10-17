@@ -30,6 +30,7 @@ Each 42 campus runs its own intra shop, and you can normally only see your own. 
 - **Every campus, grouped by country.** Live search by campus, city or country, with a jump bar for country codes.
 - **Your campus and the most viewed one, up front.** Your home campus is pinned at the top, next to the campus students open most.
 - **Full shop view.** Filter by *In stock*, *In budget*, *Unavailable* or *All*, sort by price, name or newest, and search within a shop.
+- **Every shop at once.** `/shops/all` mixes the items of every campus into one grid. Shops load one by one in the background (your campus first), and picking a country or campus in the filters moves it up the queue. Each card shows its campus, *New*, *Unique* and *1 per person* badges, how many times it was opened on 42 Shops, and how long it has been listed. Filter by country, campus, max price, availability, budget, low stock, free or your own campus, and sort by views, age or price.
 - **Wallet aware.** Your current ₳ balance is shown everywhere, with a progress bar for items you can't afford yet.
 - **Campus switcher.** Press <kbd>⌘ K</kbd> (or <kbd>Ctrl K</kbd>) to jump to any campus from the keyboard.
 - **42 sign-in only.** Nothing is visible without signing in through 42 OAuth.
@@ -54,7 +55,7 @@ Each 42 campus runs its own intra shop, and you can normally only see your own. 
 | UI | [React 19](https://react.dev), [Tailwind CSS v4](https://tailwindcss.com), [lucide-react](https://lucide.dev) |
 | Animation | [Motion](https://motion.dev) (`motion/react`) |
 | Auth | 42 OAuth 2.0, signed JWT session cookie via [jose](https://github.com/panva/jose) |
-| Storage | [Upstash Redis](https://upstash.com) for campus view counts |
+| Storage | [Upstash Redis](https://upstash.com) for shop data and view counts |
 | Analytics | [Vercel Web Analytics](https://vercel.com/docs/analytics) (page views, no cookies) |
 | Fonts | Instrument Serif, Geist, Silkscreen, Kalam (self-hosted via Fontsource) |
 | Data | [42 API v2](https://api.intra.42.fr/apidoc) |
@@ -106,7 +107,7 @@ Open [http://localhost:3000](http://localhost:3000) and sign in with 42.
 | `FT_CLIENT_SECRET` | Yes | Your 42 app's secret. Read on the server only. |
 | `SESSION_SECRET` | Yes | At least 32 random characters, used to sign session cookies. Generate with `openssl rand -base64 48`. |
 | `APP_URL` | Recommended | Public URL without trailing slash, e.g. `https://42-shops.vercel.app`. `APP_URL` + `/api/auth/callback` must be listed in your 42 app's redirect URIs. Falls back to the request origin. |
-| `UPSTASH_REDIS_REST_URL` | In production | REST URL of your Upstash Redis database. `KV_REST_API_URL` also works. |
+| `UPSTASH_REDIS_REST_URL` | In production | REST URL of your Upstash Redis database. `KV_REST_API_URL` also works. Locally, `docker compose up -d` serves one at `http://localhost:8079` (token `local-dev-token`). |
 | `UPSTASH_REDIS_REST_TOKEN` | In production | REST token of the same database. `KV_REST_API_TOKEN` also works. |
 
 ### Campus view counts
@@ -126,7 +127,7 @@ A signed-in student counts once per campus every 15 minutes. Until any views are
 - **The user's 42 token is used once** to read `/v2/me`, then discarded. It is never stored.
 - **Sessions** are HS256-signed JWTs in an `httpOnly`, `SameSite=Lax`, `Secure` (in production) cookie, valid for 7 days.
 - **OAuth `state`** is random, stored in a short-lived cookie, and compared in constant time. Post-login redirects only accept same-site paths.
-- **Two layers of auth.** `proxy.ts` blocks `/shops/*` and `/api/images/*` without a valid session (pages redirect to sign-in, API routes return `401`), and every page verifies the session again.
+- **Two layers of auth.** `proxy.ts` blocks `/shops/*`, `/api/images/*`, `/api/products/*` and `/api/campuses/*` without a valid session (pages redirect to sign-in, API routes return `401`), and every page verifies the session again.
 - **Security headers** (CSP, `X-Frame-Options: DENY`, HSTS, `nosniff`, `Referrer-Policy`, `Permissions-Policy`) are set in `next.config.ts`.
 
 Found a vulnerability? Please open a private security advisory on GitHub instead of a public issue.
@@ -138,7 +139,7 @@ The 42 API allows about **2 requests per second per app**. To stay well under it
 | Data | Cached for |
 | --- | --- |
 | Campus list | 12 hours |
-| A campus's products | 20 minutes |
+| A campus's products | 20 minutes fresh in Redis, stale copies kept 24 hours as a fallback |
 | A user's wallet | 2 minutes |
 | Product images | 7 days |
 | GitHub star count | 1 hour |
@@ -157,20 +158,23 @@ The 42 API allows about **2 requests per second per app**. To stay well under it
 │   │   │   ├── login/route.ts       # Starts 42 OAuth
 │   │   │   ├── callback/route.ts    # Exchanges code, creates session
 │   │   │   └── logout/route.ts      # Clears session
+│   │   ├── campuses/[campusId]/products/route.ts  # One campus's products (cached), for /shops/all
+│   │   ├── products/[productId]/view/route.ts     # Counts a product detail view
 │   │   └── images/[[...path]]/route.ts  # Proxies product images from 42's CDN
 │   └── shops/
 │       ├── layout.tsx           # Signed-in shell (header, wallet, GitHub stars)
 │       ├── page.tsx             # Campus directory (home + most viewed)
+│       ├── all/page.tsx         # Every shop at once, loaded campus by campus
 │       └── [campusId]/page.tsx  # A campus shop, records a view
 ├── components/                  # UI, animations, pixel art
 ├── lib/
 │   ├── ft-api.ts                # 42 API client (server only, cached)
-│   ├── campus-views.ts          # View counts in Upstash Redis
+│   ├── campus-views.ts          # Campus and product view counts in Upstash Redis
 │   ├── github.ts                # Repo star count
 │   ├── session-core.ts          # JWT sign/verify (shared with proxy)
 │   ├── session.ts               # Session helpers for server components
 │   └── env.ts                   # Lazy, server-only env access
-├── proxy.ts                     # Auth guard for /shops and /api/images
+├── proxy.ts                     # Auth guard for /shops and the /api routes
 └── next.config.ts               # Security headers
 ```
 
