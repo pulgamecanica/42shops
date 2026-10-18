@@ -27,6 +27,8 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // Self-contained server in .next/standalone, for the Docker image. Vercel ignores it.
+  output: "standalone",
   poweredByHeader: false,
   reactStrictMode: true,
   async headers() {

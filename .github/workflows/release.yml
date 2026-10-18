@@ -2,7 +2,8 @@ name: CI & release
 
 # Every PR and push to main is type-checked and built. A push to main whose
 # package.json version has no tag yet becomes a GitHub release, named after
-# CODENAME in the Makefile: bump both, merge, and the release appears.
+# CODENAME in the Makefile, and a Docker image on GHCR tagged v<version>,
+# <codename> and latest: bump both, merge, and the release appears.
 
 on:
   push:
@@ -32,6 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      packages: write
     steps:
       - uses: actions/checkout@v4
       - name: Read version and codename
@@ -39,7 +41,11 @@ jobs:
         run: |
           echo "version=$(make -s version)" >> "$GITHUB_OUTPUT"
           echo "codename=$(make -s codename)" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          codename="$(make -s codename)"
+          echo "codename_tag=$(echo "${codename,,}" | tr -c 'a-z0-9.\n-' '-')" >> "$GITHUB_OUTPUT"
       - name: Create release if v${{ steps.meta.outputs.version }} is new
+        id: release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: v${{ steps.meta.outputs.version }}
@@ -53,3 +59,27 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "$TAG “$CODENAME”" \
             --generate-notes
+          echo "created=true" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+        if: steps.release.outputs.created == 'true'
+      - uses: docker/login-action@v3
+        if: steps.release.outputs.created == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Build and push the image
+        if: steps.release.outputs.created == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+            CODENAME=${{ steps.meta.outputs.codename }}
+          tags: |
+            ${{ steps.meta.outputs.image }}:v${{ steps.meta.outputs.version }}
+            ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.codename_tag }}
+            ${{ steps.meta.outputs.image }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

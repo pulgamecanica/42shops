@@ -5,6 +5,8 @@
 //   node scripts/env.mjs key-list         saved API key profiles
 //   node scripts/env.mjs key-save <name>  save current FT_CLIENT_* as a profile
 //   node scripts/env.mjs key-use <name>   switch FT_CLIENT_* to a profile
+//   node scripts/env.mjs secret-check     a new secret (stdin) works with FT_CLIENT_ID
+//   node scripts/env.mjs secret-set       write a new secret (stdin) into the env file
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseEnv } from "node:util";
@@ -110,23 +112,58 @@ function keySave(name) {
   ok(`Saved ${file}`);
 }
 
-function keyUse(name) {
-  const file = profile(name);
-  if (!existsSync(file)) return fail(`No profile ${file}. See: make key-list`);
-  const keys = readEnv(file);
+/** Replace (or append) KEY=value lines in the env file, keeping everything else. */
+function setVars(vars) {
   let text = existsSync(ENV_FILE) ? readFileSync(ENV_FILE, "utf8") : "";
-  for (const k of KEY_VARS) {
-    if (!keys[k]) return fail(`${file} has no ${k}`);
-    const line = `${k}=${keys[k]}`;
+  for (const [k, v] of Object.entries(vars)) {
+    const line = `${k}=${v}`;
     const re = new RegExp(`^${k}=.*$`, "m");
     text = re.test(text) ? text.replace(re, line) : `${text}${text && !text.endsWith("\n") ? "\n" : ""}${line}\n`;
   }
   writeFileSync(ENV_FILE, text);
+}
+
+function keyUse(name) {
+  const file = profile(name);
+  if (!existsSync(file)) return fail(`No profile ${file}. See: make key-list`);
+  const keys = readEnv(file);
+  for (const k of KEY_VARS) if (!keys[k]) return fail(`${file} has no ${k}`);
+  setVars(Object.fromEntries(KEY_VARS.map((k) => [k, keys[k]])));
   ok(`${ENV_FILE} now uses the "${name}" key. Restart the dev server to pick it up.`);
 }
 
+/** The new secret, piped on stdin so it never shows up in shell history or `ps`. */
+async function readSecret() {
+  let input = "";
+  for await (const chunk of process.stdin) input += chunk;
+  const secret = input.trim();
+  if (!/^s-s4t2ud-[0-9a-f]{64}$/.test(secret)) {
+    fail("That doesn't look like a 42 secret (s-s4t2ud-<64 hex>)");
+    process.exit(1);
+  }
+  return secret;
+}
+
+async function secretCheck() {
+  process.env.FT_CLIENT_SECRET = await readSecret();
+  await intra();
+}
+
+async function secretSet() {
+  setVars({ FT_CLIENT_SECRET: await readSecret() });
+  ok(`Saved the new FT_CLIENT_SECRET in ${ENV_FILE}`);
+}
+
 const [cmd, arg] = process.argv.slice(2);
-const commands = { check, intra, "key-list": keyList, "key-save": keySave, "key-use": keyUse };
+const commands = {
+  check,
+  intra,
+  "key-list": keyList,
+  "key-save": keySave,
+  "key-use": keyUse,
+  "secret-check": secretCheck,
+  "secret-set": secretSet,
+};
 if (!commands[cmd]) {
   console.error(`Unknown command "${cmd ?? ""}". One of: ${Object.keys(commands).join(", ")}`);
   process.exit(2);

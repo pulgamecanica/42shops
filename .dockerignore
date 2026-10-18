@@ -1,0 +1,12 @@
+.git
+.github
+.next
+node_modules
+.env
+.env*
+!.env.example
+.keys
+*.tsbuildinfo
+Dockerfile
+compose*.yaml
+.deploy.env

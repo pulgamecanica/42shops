@@ -9,3 +9,5 @@ next-env.d.ts
 .DS_Store
 data
 .keys
+.env.production
+.deploy.env
