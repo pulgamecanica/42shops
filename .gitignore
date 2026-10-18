@@ -8,3 +8,6 @@ next-env.d.ts
 .vercel
 .DS_Store
 data
+.keys
+.env.production
+.deploy.env

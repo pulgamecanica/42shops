@@ -189,6 +189,55 @@ The 42 API allows about **2 requests per second per app**. To stay well under it
 | `npm run start` | Serve the production build |
 | `npm run typecheck` | Type-check without emitting |
 
+### Make
+
+Run `make` to list every target. The useful ones:
+
+| Command | What it does |
+| --- | --- |
+| `make setup` | `npm ci` and create `.env.local` from the example |
+| `make env-check` | Required variables are set and well formed |
+| `make intra-check` | 42 accepts your app credentials, and when the secret expires |
+| `make doctor` | Both checks |
+| `make check` | Type-check and build, same as CI |
+| `make key-save NAME=main` | Save the current `FT_CLIENT_ID` / `FT_CLIENT_SECRET` to `.keys/main.env` |
+| `make key-use NAME=main` | Switch the env file to a saved key, then verify it with intra |
+| `make key-list` | Saved keys, `*` marks the active one |
+| `make secret-rotate [HOST=…]` | Verify and install a new 42 secret, locally or on a server over SSH |
+| `make docker-build` / `docker-up` | Build the image / run it with Redis via `compose.prod.yaml` |
+| `make deploy HOST=user@server` | Deploy the released image to a server over SSH |
+
+Targets read `.env.local`, or `.env` when there is none. Override with `ENV_FILE=path`. `.keys/` is git-ignored. The env helpers need Node 20.12+.
+
+## Docker and self-hosting
+
+Every release is also a Docker image on GHCR, tagged `v<version>`, `<codename>` and `latest`:
+
+```bash
+docker pull ghcr.io/pulgamecanica/42shops:latest
+```
+
+`compose.prod.yaml` runs it with its own Redis (behind the same Upstash REST API the app uses on Vercel). It reads the app settings from `.env.production` next to it (same variables as `.env.example`).
+
+- **Coolify:** add a *Docker Compose* resource pointing at this repo and `compose.prod.yaml`, and set the variables from `.env.example` in Coolify. Or use a *Docker Image* resource with `ghcr.io/pulgamecanica/42shops:latest` and your own Upstash database.
+- **Any server with Docker and SSH:** create `/opt/42shops/.env.production` on it, then from your machine run `make deploy HOST=user@server`. It copies the compose file, pulls the image and starts it. `TAG=v1.0.0`, `PORT=8080` and `DEPLOY_DIR=…` are optional.
+- **Locally:** `make docker-build` builds the image, `make docker-up` runs the stack here, `make docker-logs` follows the logs, and `make docker-push` pushes your build (after `docker login ghcr.io`).
+
+### Rotating the 42 secret
+
+42 app secrets expire (`make intra-check` says when). Generate a new one on your app page, then:
+
+```bash
+make secret-rotate                       # dev: updates your local env file
+make secret-rotate HOST=user@server      # prod: updates the server and restarts the app
+```
+
+It asks for the secret without echoing it, checks it with 42 first (using that environment's `FT_CLIENT_ID`), and only then saves it and restarts the app. Over SSH the secret is sent on stdin, so it never shows up in shell history or the process list. On Coolify, change `FT_CLIENT_SECRET` in its UI instead.
+
+## Releases
+
+Every PR and push to `main` runs `make check`. On `main`, if the `version` in `package.json` has no `v<version>` release yet, one is created and named after `CODENAME` in the `Makefile`, with notes generated from the merged PRs, and the Docker image is pushed to GHCR. To ship: bump `version`, pick a new `CODENAME`, merge.
+
 ## Contributing
 
 Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and what makes a good pull request.

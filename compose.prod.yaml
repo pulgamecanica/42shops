@@ -1,0 +1,38 @@
+# Run the released image with its own Redis. Works as-is in Coolify (Docker
+# Compose resource) or on any host with Docker:
+#   make deploy HOST=user@server        copies this file + starts it remotely
+#   make docker-up                      same thing on this machine
+# Settings come from the env file next to it (PROD_ENV, default .env.production).
+services:
+  app:
+    image: ghcr.io/pulgamecanica/42shops:${TAG:-latest}
+    restart: unless-stopped
+    env_file: ${PROD_ENV:-.env.production}
+    environment:
+      # Redis below, reached through its Upstash-compatible REST proxy.
+      UPSTASH_REDIS_REST_URL: http://redis-http
+      UPSTASH_REDIS_REST_TOKEN: ${REDIS_HTTP_TOKEN:-internal-only}
+    ports:
+      - "${PORT:-3000}:3000"
+    depends_on:
+      - redis-http
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --save 60 1
+    volumes:
+      - redis-data:/data
+
+  redis-http:
+    image: hiett/serverless-redis-http:latest
+    restart: unless-stopped
+    environment:
+      SRH_MODE: env
+      SRH_TOKEN: ${REDIS_HTTP_TOKEN:-internal-only}
+      SRH_CONNECTION_STRING: redis://redis:6379
+    depends_on:
+      - redis
+
+volumes:
+  redis-data:
