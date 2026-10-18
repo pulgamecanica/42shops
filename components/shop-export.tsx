@@ -9,9 +9,11 @@ import { jpegPdf, zip } from "@/lib/report-files";
 import { cn, formatAge, formatNumber } from "@/lib/utils";
 import type { Item } from "./all-shops-view";
 import { Segmented } from "./controls";
+import { oneOf, useStoredState } from "./use-stored-state";
 import {
   ComparePicker,
   STATUS_TEXT,
+  isSlots,
   bestStats,
   slotCampuses,
   slotLabel,
@@ -356,9 +358,14 @@ export function ExportModal({
   note: string;
 }) {
   const [mounted, setMounted] = useState(false);
-  const [slots, setSlots] = useState<Slot[]>(initialSlots);
-  const [formats, setFormats] = useState<Format[]>(["pdf", "html", "png"]);
-  const [preview, setPreview] = useState<Format>("html");
+  // The exporter keeps its own shops, formats and preview tab per browser.
+  const [slots, setSlots] = useStoredState<Slot[]>("42shops:export:slots", [], isSlots);
+  const [formats, setFormats] = useStoredState<Format[]>(
+    "42shops:export:formats",
+    ["pdf", "html", "png"],
+    (v) => Array.isArray(v) && v.every(oneOf("pdf", "html", "png")),
+  );
+  const [preview, setPreview] = useStoredState<Format>("42shops:export:preview", "html", oneOf("pdf", "html", "png"));
   const [result, setResult] = useState<Result | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -366,7 +373,8 @@ export function ExportModal({
 
   useEffect(() => setMounted(true), []);
   useEffect(() => {
-    if (open) setSlots(initialSlots);
+    // First time (nothing saved yet): start from the shops being compared.
+    if (open && slots.length === 0) setSlots(initialSlots);
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -380,6 +388,14 @@ export function ExportModal({
       window.removeEventListener("keydown", onKey);
     };
   }, [open, onClose]);
+
+  // Picked or restored shops load first; ones that no longer exist are dropped.
+  useEffect(() => {
+    if (!open) return;
+    const live = slots.filter((s) => slotCampuses(s, campuses).length > 0);
+    if (live.length !== slots.length) setSlots(live);
+    prioritize(live.flatMap((s) => slotCampuses(s, campuses).map((c) => c.id)));
+  }, [open, slots, campuses, prioritize, setSlots]);
 
   const waiting = slots.flatMap((s) => slotCampuses(s, campuses)).filter((c) => !loaded[c.id]).length;
 
@@ -478,16 +494,7 @@ export function ExportModal({
 
             <div className="flex flex-col gap-3">
               <p className="text-xs font-medium uppercase tracking-wide text-muted">Shops</p>
-              <ComparePicker
-                campuses={campuses}
-                loaded={loaded}
-                slots={slots}
-                max={Infinity}
-                onChange={(next) => {
-                  setSlots(next);
-                  prioritize(next.flatMap((s) => slotCampuses(s, campuses).map((c) => c.id)));
-                }}
-              />
+              <ComparePicker campuses={campuses} loaded={loaded} slots={slots} max={Infinity} onChange={setSlots} />
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-3">

@@ -10,9 +10,10 @@ import { ageInDays, cn, formatAge, formatDate, formatNumber, normalize, productS
 import { Segmented, SortMenu } from "./controls";
 import { PixelArt } from "./pixel-art";
 import { Fact, Price, ProductCard, ProductModal, type ShopItem } from "./product";
-import { CompareBoard, ComparePicker, slotCampuses, slotMatches, type Slot } from "./shop-compare";
+import { CompareBoard, ComparePicker, isSlots, slotCampuses, slotMatches, type Slot } from "./shop-compare";
 import { ExportModal } from "./shop-export";
 import { StickyNote } from "./sticky-note";
+import { isString, isStringArray, oneOf, useStoredState } from "./use-stored-state";
 
 type Status = "all" | "available" | "affordable" | "unavailable";
 type Sort = "featured" | "views" | "newest" | "oldest" | "price-asc" | "price-desc" | "name";
@@ -284,15 +285,28 @@ export function AllShopsView({
   }, [campuses, loaded, views, now, homeCampusId]);
 
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState<Status>("available");
-  const [sort, setSort] = useState<Sort>("featured");
-  const [country, setCountry] = useState("all");
-  const [campusId, setCampusId] = useState("all");
-  const [flags, setFlags] = useState<Flag[]>([]);
-  const [maxPrice, setMaxPrice] = useState("");
+  // Filters and comparisons are remembered per browser; the search box is not.
+  const [status, setStatus] = useStoredState<Status>(
+    "42shops:all:status",
+    "available",
+    oneOf("all", "available", "affordable", "unavailable"),
+  );
+  const [sort, setSort] = useStoredState<Sort>("42shops:all:sort", "featured", oneOf(...SORTS.map((s) => s.value)));
+  const [country, setCountry] = useStoredState("42shops:all:country", "all", isString);
+  const [campusId, setCampusId] = useStoredState("42shops:all:campus", "all", isString);
+  const [flags, setFlags] = useStoredState<Flag[]>(
+    "42shops:all:flags",
+    [],
+    (v) => isStringArray(v) && (v as string[]).every((f) => FLAGS.some((x) => x.value === f)),
+  );
+  const [maxPrice, setMaxPrice] = useStoredState(
+    "42shops:all:max-price",
+    "",
+    (v) => isString(v) && /^\d*$/.test(v as string),
+  );
   const [limit, setLimit] = useState(PAGE);
-  const [compare, setCompare] = useState(false);
-  const [slots, setSlots] = useState<Slot[]>([]);
+  const [compare, setCompare] = useStoredState("42shops:all:compare", false, (v) => typeof v === "boolean");
+  const [slots, setSlots] = useStoredState<Slot[]>("42shops:all:compare-slots", [], isSlots);
   const compareMax = useCompareMax();
   const [exportOpen, setExportOpen] = useState(false);
   const closeExport = useCallback(() => setExportOpen(false), []);
@@ -417,10 +431,14 @@ export function AllShopsView({
   const filtered =
     query !== "" || (!compare && (country !== "all" || campusId !== "all")) || flags.length > 0 || maxPrice !== "";
 
-  const changeSlots = (next: Slot[]) => {
-    setSlots(next);
-    prioritize(next.filter((s) => !slots.includes(s)).flatMap((s) => slotCampuses(s, campuses).map((c) => c.id)));
-  };
+  const changeSlots = setSlots;
+
+  // Compared shops (picked now or restored from storage) load first; ones that no longer exist are dropped.
+  useEffect(() => {
+    const live = slots.filter((s) => slotCampuses(s, campuses).length > 0);
+    if (live.length !== slots.length) setSlots(live);
+    prioritize(live.flatMap((s) => slotCampuses(s, campuses).map((c) => c.id)));
+  }, [slots, campuses, prioritize, setSlots]);
   // Printed on exported reports, so a file says which filters shaped it.
   const exportNote = [
     { available: "in stock", affordable: "in your budget", unavailable: "unavailable", all: "all items" }[status],

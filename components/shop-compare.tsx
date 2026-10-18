@@ -29,6 +29,9 @@ export const STATUS_TEXT: Record<ProductStatus, string> = {
   ended: "Ended",
 };
 
+export const isSlots = (v: unknown) =>
+  Array.isArray(v) && v.every((s) => typeof s === "string" && /^(campus|country):./.test(s));
+
 const slotValue = (slot: Slot) => slot.slice(slot.indexOf(":") + 1);
 const inSlot = (slot: Slot, c: Campus) =>
   slot.startsWith("campus:") ? String(c.id) === slotValue(slot) : c.country === slotValue(slot);
@@ -249,7 +252,8 @@ export function bestStats(all: Stats[]): Record<keyof Stats, number | null> {
   const out = {} as Record<keyof Stats, number | null>;
   for (const key of Object.keys(BEST) as Array<keyof Stats>) {
     const values = all.flatMap((s) => (s[key] === null ? [] : [s[key]!]));
-    out[key] = all.length < 2 || !values.length ? null : BEST[key] === "max" ? Math.max(...values) : Math.min(...values);
+    out[key] =
+      all.length < 2 || !values.length ? null : BEST[key] === "max" ? Math.max(...values) : Math.min(...values);
   }
   return out;
 }
