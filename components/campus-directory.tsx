@@ -265,6 +265,15 @@ export function CampusDirectory({
             {formatNumber(totalCampuses)} campuses in {formatNumber(groups.length)} countries. Open one to see everything
             its shop sells, what&apos;s in stock, and what your wallet covers.
           </p>
+          <motion.div initial="rest" animate="rest" whileHover="hover" whileTap={{ scale: 0.97 }} className="mt-6 inline-block">
+            <Link
+              href="/shops/all"
+              className="flex items-center gap-3 rounded-full bg-ink py-1.5 pl-5 pr-1.5 text-sm font-medium text-white"
+            >
+              Browse every shop at once
+              <ArrowStatus />
+            </Link>
+          </motion.div>
         </div>
         <div className="hidden flex-wrap items-end justify-end gap-5 lg:flex">
           <StickyNote className="w-56" rotate={-3} delay={0.25} pin={<PixelArt sprite="pinkHeart" scale={3} />}>

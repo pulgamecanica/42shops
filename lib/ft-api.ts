@@ -2,6 +2,7 @@ import "server-only";
 import { unstable_cache } from "next/cache";
 import { env } from "./env";
 import { FT_USER_AGENT, describeFtError } from "./ft-http";
+import { redis } from "./redis";
 import type { Campus, Product } from "./types";
 
 const API = "https://api.intra.42.fr";
@@ -222,20 +223,94 @@ export const getCampuses = unstable_cache(
   { revalidate: 60 * 60 * 12, tags: ["campuses"] },
 );
 
-export function getCampusProducts(campusId: number): Promise<Product[]> {
-  return unstable_cache(
-    async () => {
-      try {
-        const raw = await getAllPages<RawProduct>(`/v2/campus/${campusId}/products`);
-        return raw.map(toProduct);
-      } catch (error) {
-        if (error instanceof FtApiError && error.status === 404) return [];
-        throw error;
-      }
-    },
-    ["ft-products-v2", String(campusId)],
-    { revalidate: 60 * 20, tags: [`products-${campusId}`] },
-  )();
+// ---------------------------------------------------------------------------
+// Campus products, cached in Redis so every instance and deploy shares them.
+// Entries are fresh for 20 minutes; stale ones are kept for a day and served
+// when 42 rate limits or fails, and so /shops/all can render them instantly.
+// ---------------------------------------------------------------------------
+const PRODUCTS_FRESH_MS = 20 * 60 * 1000;
+const PRODUCTS_TTL_SECONDS = 24 * 60 * 60;
+const productsKey = (campusId: number) => `products:v1:${campusId}`;
+
+type ProductsEntry = { at: number; products: Product[] };
+
+const memoryProducts = new Map<number, ProductsEntry>(); // fallback without Redis
+const inflightProducts = new Map<number, Promise<Product[]>>();
+
+async function readProducts(campusIds: number[]): Promise<Array<ProductsEntry | null>> {
+  if (!campusIds.length) return [];
+  if (!redis) return campusIds.map((id) => memoryProducts.get(id) ?? null);
+  try {
+    return await redis.mget<Array<ProductsEntry | null>>(...campusIds.map(productsKey));
+  } catch (err) {
+    console.error("[products] Redis read failed:", err);
+    return campusIds.map(() => null);
+  }
+}
+
+async function writeProducts(campusId: number, entry: ProductsEntry): Promise<void> {
+  if (!redis) {
+    memoryProducts.set(campusId, entry);
+    return;
+  }
+  try {
+    await redis.set(productsKey(campusId), entry, { ex: PRODUCTS_TTL_SECONDS });
+  } catch (err) {
+    console.error("[products] Redis write failed:", err);
+  }
+}
+
+async function fetchCampusProducts(campusId: number): Promise<Product[]> {
+  try {
+    const raw = await getAllPages<RawProduct>(`/v2/campus/${campusId}/products`);
+    return raw.map(toProduct);
+  } catch (error) {
+    if (error instanceof FtApiError && error.status === 404) return [];
+    throw error;
+  }
+}
+
+const isFresh = (entry: ProductsEntry) => Date.now() - entry.at < PRODUCTS_FRESH_MS;
+
+export async function getCampusProducts(campusId: number): Promise<Product[]> {
+  const [cached] = await readProducts([campusId]);
+  if (cached && isFresh(cached)) return cached.products;
+
+  // Concurrent misses in one instance share a single 42 request.
+  let pending = inflightProducts.get(campusId);
+  if (!pending) {
+    pending = fetchCampusProducts(campusId)
+      .then(async (products) => {
+        await writeProducts(campusId, { at: Date.now(), products });
+        return products;
+      })
+      .finally(() => inflightProducts.delete(campusId));
+    inflightProducts.set(campusId, pending);
+  }
+  try {
+    return await pending;
+  } catch (error) {
+    if (cached) {
+      console.warn(`[products] Serving stale campus ${campusId}:`, error);
+      return cached.products;
+    }
+    throw error;
+  }
+}
+
+/** Whatever Redis already has for these campuses (one MGET, no 42 calls), plus which entries are stale. */
+export async function peekCampusProducts(
+  campusIds: number[],
+): Promise<{ products: Record<number, Product[]>; stale: number[] }> {
+  const entries = await readProducts(campusIds);
+  const products: Record<number, Product[]> = {};
+  const stale: number[] = [];
+  entries.forEach((entry, i) => {
+    if (!entry) return;
+    products[campusIds[i]] = entry.products;
+    if (!isFresh(entry)) stale.push(campusIds[i]);
+  });
+  return { products, stale };
 }
 
 /** Fresh-ish wallet for the signed-in user; falls back to the value from sign-in. */

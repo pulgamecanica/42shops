@@ -67,10 +67,14 @@ export function SortMenu<T extends string>({
   value,
   onChange,
   options,
+  label = "Sort",
+  align = "right",
 }: {
   value: T;
   onChange: (v: T) => void;
   options: Array<{ value: T; label: string }>;
+  label?: string;
+  align?: "left" | "right";
 }) {
   const [open, setOpen] = useState(false);
   const [hovered, setHovered] = useState<T | null>(null);
@@ -88,7 +92,7 @@ export function SortMenu<T extends string>({
         aria-expanded={open}
         className="flex h-10 items-center gap-2 rounded-full border border-line bg-white pl-4 pr-3 text-sm transition-colors hover:border-ink"
       >
-        <span className="text-muted">Sort</span>
+        <span className="text-muted">{label}</span>
         <span className="font-medium">{current?.label}</span>
         <motion.span animate={{ rotate: open ? 180 : 0 }} transition={pillSpring}>
           <ChevronDown size={14} className="text-muted" />
@@ -103,9 +107,13 @@ export function SortMenu<T extends string>({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: -4, transition: { duration: 0.12 } }}
             transition={{ type: "spring", stiffness: 520, damping: 34 }}
-            style={{ transformOrigin: "top right" }}
+            style={{ transformOrigin: `top ${align}` }}
             onMouseLeave={() => setHovered(null)}
-            className="absolute right-0 top-[calc(100%+8px)] z-50 w-52 rounded-2xl border border-line bg-white p-1.5 shadow-[0_20px_40px_-16px_rgba(0,0,0,0.25)]"
+            className={cn(
+              "absolute top-[calc(100%+8px)] z-50 max-h-80",
+              align === "left" ? "left-0" : "right-0",
+              "w-52 overflow-y-auto rounded-2xl border border-line bg-white p-1.5 shadow-[0_20px_40px_-16px_rgba(0,0,0,0.25)]",
+            )}
           >
             {options.map((o) => (
               <li key={o.value} role="option" aria-selected={o.value === value}>

@@ -1,0 +1,18 @@
+# Local Redis for `next dev`, speaking Upstash's REST API like production.
+#   docker compose up -d
+#   UPSTASH_REDIS_REST_URL=http://localhost:8079
+#   UPSTASH_REDIS_REST_TOKEN=local-dev-token   (or whatever SRH_TOKEN is)
+services:
+  redis:
+    image: redis:7-alpine
+
+  redis-http:
+    image: hiett/serverless-redis-http:latest
+    ports:
+      - "8079:80"
+    environment:
+      SRH_MODE: "env"
+      SRH_TOKEN: "${UPSTASH_REDIS_REST_TOKEN:-local-dev-token}"
+      SRH_CONNECTION_STRING: "redis://redis:6379"
+    depends_on:
+      - redis
