@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, LayoutGroup, motion } from "motion/react";
-import { ArrowLeft, ArrowUpRight, Clock, Columns3, Eye, Loader2, RotateCw, Search, X } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Clock, Columns3, Eye, FileDown, Loader2, RotateCw, Search, X } from "lucide-react";
 import type { Campus, Product } from "@/lib/types";
 import { countryCode } from "@/lib/countries";
 import { ageInDays, cn, formatAge, formatDate, formatNumber, normalize, productStatus } from "@/lib/utils";
@@ -11,6 +11,7 @@ import { Segmented, SortMenu } from "./controls";
 import { PixelArt } from "./pixel-art";
 import { Fact, Price, ProductCard, ProductModal, type ShopItem } from "./product";
 import { CompareBoard, ComparePicker, slotCampuses, slotMatches, type Slot } from "./shop-compare";
+import { ExportModal } from "./shop-export";
 import { StickyNote } from "./sticky-note";
 
 type Status = "all" | "available" | "affordable" | "unavailable";
@@ -293,6 +294,8 @@ export function AllShopsView({
   const [compare, setCompare] = useState(false);
   const [slots, setSlots] = useState<Slot[]>([]);
   const compareMax = useCompareMax();
+  const [exportOpen, setExportOpen] = useState(false);
+  const closeExport = useCallback(() => setExportOpen(false), []);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -316,22 +319,28 @@ export function AllShopsView({
     [campuses, loaded, country],
   );
 
-  // Everything but the status filter, so the status tabs can show live counts.
-  const base = useMemo(() => {
+  // Filters split in three: where (country/campus or compared shops), what
+  // (search, price, flags) and status, so each view can mix what it needs.
+  const inPlace = useCallback(
+    (i: Item) =>
+      compare
+        ? slots.some((slot) => slotMatches(slot, i))
+        : (country === "all" || i.campuses.some((c) => c.country === country)) &&
+          (campusId === "all" || i.campuses.some((c) => String(c.id) === campusId)),
+    [compare, slots, country, campusId],
+  );
+
+  const matching = useMemo(() => {
     const q = normalize(query.trim());
     const max = maxPrice === "" ? Infinity : Number(maxPrice);
     const tests = FLAGS.filter((f) => flags.includes(f.value));
     return items.filter(
-      (i) =>
-        (compare
-          ? slots.some((slot) => slotMatches(slot, i))
-          : (country === "all" || i.campuses.some((c) => c.country === country)) &&
-            (campusId === "all" || i.campuses.some((c) => String(c.id) === campusId))) &&
-        i.price <= max &&
-        (!q || i.haystack.includes(q)) &&
-        tests.every((f) => f.test(i, homeCampusId)),
+      (i) => i.price <= max && (!q || i.haystack.includes(q)) && tests.every((f) => f.test(i, homeCampusId)),
     );
-  }, [items, query, maxPrice, country, campusId, flags, homeCampusId, compare, slots]);
+  }, [items, query, maxPrice, flags, homeCampusId]);
+
+  // Everything but the status filter, so the status tabs can show live counts.
+  const base = useMemo(() => matching.filter(inPlace), [matching, inPlace]);
 
   const counts = useMemo(() => {
     const available = base.filter((i) => i.status === "available");
@@ -343,8 +352,9 @@ export function AllShopsView({
     };
   }, [base, wallet]);
 
-  const visible = useMemo(() => {
-    const list = base.filter((i) => {
+  /** Every shop's items after search, flags, status and sort; the export picks its own shops from these. */
+  const sorted = useMemo(() => {
+    const list = matching.filter((i) => {
       if (status === "available") return i.status === "available";
       if (status === "affordable") return i.status === "available" && i.price <= wallet;
       if (status === "unavailable") return i.status !== "available";
@@ -369,7 +379,9 @@ export function AllShopsView({
           return STATUS_RANK[a.status] - STATUS_RANK[b.status] || b.views - a.views || byNewest(a, b);
       }
     });
-  }, [base, status, sort, wallet]);
+  }, [matching, status, sort, wallet]);
+
+  const visible = useMemo(() => sorted.filter(inPlace), [sorted, inPlace]);
 
   // Back to the first page whenever the result set changes.
   useEffect(() => setLimit(PAGE), [base, status, sort]);
@@ -409,6 +421,17 @@ export function AllShopsView({
     setSlots(next);
     prioritize(next.filter((s) => !slots.includes(s)).flatMap((s) => slotCampuses(s, campuses).map((c) => c.id)));
   };
+  // Printed on exported reports, so a file says which filters shaped it.
+  const exportNote = [
+    { available: "in stock", affordable: "in your budget", unavailable: "unavailable", all: "all items" }[status],
+    query && `matching “${query.trim()}”`,
+    ...FLAGS.filter((f) => flags.includes(f.value)).map((f) => f.label.toLowerCase()),
+    maxPrice !== "" && `up to ₳${maxPrice}`,
+    `sorted by ${SORTS.find((x) => x.value === sort)?.label.toLowerCase()}`,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
   const toggleCompare = () => {
     if (!compare && slots.length === 0 && homeCampusId !== null) changeSlots([`campus:${homeCampusId}`]);
     setCompare((v) => !v);
@@ -632,7 +655,35 @@ export function AllShopsView({
             transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
             className="-mx-2 mb-8 px-2 py-1 sm:mb-10"
           >
-            <ComparePicker campuses={campuses} loaded={loaded} slots={slots} max={compareMax} onChange={changeSlots} />
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <ComparePicker
+                campuses={campuses}
+                loaded={loaded}
+                slots={slots}
+                max={compareMax}
+                onChange={changeSlots}
+              />
+              <motion.button
+                whileTap={{ scale: 0.96 }}
+                onClick={() => setExportOpen(true)}
+                className="inline-flex h-10 items-center gap-2 rounded-full bg-ink px-4 text-sm font-medium text-white transition-colors hover:bg-blue"
+              >
+                <FileDown size={15} />
+                Export more shops
+              </motion.button>
+            </div>
+            <ExportModal
+              open={exportOpen}
+              onClose={closeExport}
+              initialSlots={slots}
+              campuses={campuses}
+              loaded={loaded}
+              prioritize={prioritize}
+              all={items}
+              visible={sorted}
+              wallet={wallet}
+              note={exportNote}
+            />
           </motion.div>
         ) : null}
       </AnimatePresence>

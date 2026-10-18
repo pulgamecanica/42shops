@@ -22,7 +22,7 @@ const ACCENTS = [
   { box: "bg-heart text-white", soft: "bg-white/15", dot: "bg-heart" },
 ];
 
-const STATUS_TEXT: Record<ProductStatus, string> = {
+export const STATUS_TEXT: Record<ProductStatus, string> = {
   available: "In stock",
   soldout: "Sold out",
   upcoming: "Soon",
@@ -36,7 +36,7 @@ const inSlot = (slot: Slot, c: Campus) =>
 export const slotCampuses = (slot: Slot, campuses: Campus[]) => campuses.filter((c) => inSlot(slot, c));
 export const slotMatches = (slot: Slot, item: Item) => item.campuses.some((c) => inSlot(slot, c));
 
-function slotLabel(slot: Slot, campuses: Campus[]) {
+export function slotLabel(slot: Slot, campuses: Campus[]) {
   const value = slotValue(slot);
   if (slot.startsWith("country:")) {
     const n = slotCampuses(slot, campuses).length;
@@ -117,7 +117,7 @@ export function ComparePicker({
               className={cn(
                 "inline-flex h-10 items-center gap-2 rounded-full pl-2 pr-1.5 text-sm font-medium",
                 ACCENTS[i % ACCENTS.length].box,
-                i >= 2 && "max-md:opacity-40",
+                i >= max && "opacity-40", // past the limit, e.g. after shrinking to a phone
               )}
             >
               <span
@@ -226,7 +226,7 @@ export function ComparePicker({
 // ---------------------------------------------------------------------------
 // Board: one column per shop, side by side
 // ---------------------------------------------------------------------------
-type Stats = {
+export type Stats = {
   items: number;
   inStock: number;
   inBudget: number;
@@ -244,7 +244,17 @@ const BEST: Record<keyof Stats, "max" | "min"> = {
   newest: "min",
 };
 
-function statsOf(items: Item[], wallet: number): Stats {
+/** The best value of each stat across shops, or null when there is nothing to compare against. */
+export function bestStats(all: Stats[]): Record<keyof Stats, number | null> {
+  const out = {} as Record<keyof Stats, number | null>;
+  for (const key of Object.keys(BEST) as Array<keyof Stats>) {
+    const values = all.flatMap((s) => (s[key] === null ? [] : [s[key]!]));
+    out[key] = all.length < 2 || !values.length ? null : BEST[key] === "max" ? Math.max(...values) : Math.min(...values);
+  }
+  return out;
+}
+
+export function statsOf(items: Item[], wallet: number): Stats {
   const stock = items.filter((i) => i.status === "available");
   const prices = stock.map((i) => i.price).sort((a, b) => a - b);
   const ages = items.flatMap((i) => (i.age === null ? [] : [i.age]));
@@ -350,15 +360,7 @@ export function CompareBoard({
   );
 
   // Star the best value of each stat, only when there is something to compare against.
-  const best = useMemo(() => {
-    const out = {} as Record<keyof Stats, number | null>;
-    for (const key of Object.keys(BEST) as Array<keyof Stats>) {
-      const values = columns.flatMap((c) => (c.stats[key] === null ? [] : [c.stats[key]!]));
-      out[key] =
-        columns.length < 2 || !values.length ? null : BEST[key] === "max" ? Math.max(...values) : Math.min(...values);
-    }
-    return out;
-  }, [columns]);
+  const best = useMemo(() => bestStats(columns.map((c) => c.stats)), [columns]);
   const isBest = (key: keyof Stats, v: number | null) => v !== null && v === best[key];
 
   if (!shown.length) {
